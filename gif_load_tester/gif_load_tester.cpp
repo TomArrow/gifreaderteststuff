@@ -116,8 +116,8 @@ extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* 
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
-        write(1, "arguments: <in>.gif\n", 48UL);
+    //if (argc < 2)
+        //write(1, "arguments: <in>.gif\n", 48UL);
 
     loadfile(argv[1]);
 }
