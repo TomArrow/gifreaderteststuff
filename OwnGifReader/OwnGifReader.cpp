@@ -267,10 +267,11 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 	bool done = false;
 	size_t outIndex = 0;
 	for (i = 0,bitoffset=0; !done; i++) {
-		if ((nextCodeEntry - codeTable) & ~((1<<codewidth) -1)) {
+		if ((nextCodeEntry - codeTable) & ~((1<<codewidth) -1) && codewidth < 12) {
 			codewidth++;
 		}
 		code = lzw_getcode(codes, bitoffset, codewidth, codecount+4);
+		bitoffset += codewidth;
 		if (code < 0) {
 			ERROR("GIF Error reading LZW code.");
 		}
@@ -284,7 +285,7 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 			}
 			memcpy(imageIndices + outIndex, codeTable[code].data, codeTable[code].len);
 			outIndex += codeTable[code].len-1;
-			if (lastCode >= 0) {
+			if (lastCode >= 0 && nextCodeEntry != codeTableEnd) {
 				int newLen = codeTable[lastCode].len + 1;
 				byte* newSymbol = imageIndices + outIndex - (codeTable[lastCode].len+ codeTable[code].len) + 1;
 				nextCodeEntry->type = LZWCODE_USED;
@@ -302,6 +303,9 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 				int newLen = codeTable[lastCode].len + 1;
 				if ((outIndex+ newLen-1) >= localImagePixels) {
 					ERROR("GIF Error decoding LZW, overflew local image buffer at empty.");
+				}
+				if (nextCodeEntry == codeTableEnd) {
+					ERROR("GIF Error decoding LZW, table full but code not in dictionary. WTF.");
 				}
 				memcpy(imageIndices + outIndex, codeTable[lastCode].data, codeTable[lastCode].len);
 				outIndex += codeTable[lastCode].len;
@@ -327,13 +331,13 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 			memset(extraCodeEntries, 0, (byte*)codeTableEnd - (byte*)extraCodeEntries);
 			nextCodeEntry = extraCodeEntries;
 			codewidth = lzwMinCodeSize + 1;
-			//lastCode = -1;
+			lastCode = -1;
 			goto nolastcode;
 			break;
 		}
 		lastCode = code;
-nolastcode:
-		bitoffset += codewidth;
+	nolastcode:
+		continue;
 	}
 
 	imageData = new byte[(size_t)header->width * (size_t)header->height * sizeof(colorvec_t)];
