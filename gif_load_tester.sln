@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.32901.82
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "gif_load_tester", "gif_load_tester\gif_load_tester.vcxproj", "{C0AB03FF-C98A-4049-BDFF-8E6DF9653903}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OwnGifReader", "OwnGifReader\OwnGifReader.vcxproj", "{226D8F06-1FF3-4286-9324-D22E5F0512A2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,14 @@ Global
 		{C0AB03FF-C98A-4049-BDFF-8E6DF9653903}.Release|x64.Build.0 = Release|x64
 		{C0AB03FF-C98A-4049-BDFF-8E6DF9653903}.Release|x86.ActiveCfg = Release|Win32
 		{C0AB03FF-C98A-4049-BDFF-8E6DF9653903}.Release|x86.Build.0 = Release|Win32
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Debug|x64.ActiveCfg = Debug|x64
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Debug|x64.Build.0 = Debug|x64
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Debug|x86.ActiveCfg = Debug|Win32
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Debug|x86.Build.0 = Debug|Win32
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Release|x64.ActiveCfg = Release|x64
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Release|x64.Build.0 = Release|x64
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Release|x86.ActiveCfg = Release|Win32
+		{226D8F06-1FF3-4286-9324-D22E5F0512A2}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
