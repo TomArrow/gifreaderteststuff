@@ -412,7 +412,7 @@ extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* 
 
 		read_gif(buffer, len,&error, outbuffer, &outLen);
 
-#if 1
+#if 0
 		if (!error && outLen > 0) {
 			FILE* g = NULL;
 			if (!fopen_s(&g, "teststripped.gif", "wb") && g) {
@@ -430,6 +430,7 @@ extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* 
 			//std::cout << error << "\n";
 		}
 		delete[] buffer;
+		delete[] outbuffer;
 	}
 	return 0;
 }
