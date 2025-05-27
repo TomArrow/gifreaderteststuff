@@ -54,9 +54,13 @@ typedef struct codeEntry_s {
 typedef	byte color_t;
 typedef	color_t colorvec_t[3];
 
-#define ERROR(what) *error = (what); goto cleanup
+#define CLEANOUTBUFFER if(outBufferValid) { memset(outBufStart,0,len); *outLen = 0; outBuffer=outBufStart; }
+#define ERROR(what) *error = (what); CLEANOUTBUFFER; goto cleanup
 #define CHECKLENGTH(howmuch) if((howmuch) >= len){ERROR("read past end of file");}
 #define ADVANCE(howmuch) buffer += (size_t)(howmuch); len -= (howmuch)
+#define OUT_COPY(howmuch) if(outBufferValid){ memcpy(outBuffer,buffer,(howmuch)); outBuffer+=(howmuch); (*outLen) += (howmuch); } // for copying over when rewriting
+#define OUT_PUSHBYTE(b) if(outBufferValid){ *outBuffer=(byte)(b);outBuffer++;(*outLen)++; } // for pushing a single byte when rewriting
+#define OUT_PUSHZERO(howmuch) if(outBufferValid){ memset(outBuffer,0,(howmuch)); outBuffer+=(howmuch); (*outLen) += (howmuch); } // for zeroing a bit when rewriting
 
 int lzw_getcode(byte* buffer, uint32_t bitoffset, byte bits, int bufferLen) {
 	if (bitoffset + bits > (bufferLen<<3)) {
@@ -72,12 +76,15 @@ int lzw_getcode(byte* buffer, uint32_t bitoffset, byte bits, int bufferLen) {
 
 static byte roots[256] = { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 };
 
-void read_gif(const byte* buffer, size_t len, const char** error) {
+// specify outBuffer and outLen if you wish to rewrite the file.
+// outbuffer MUST be at least the same length as buffer.
+void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer = NULL, size_t* outLen = NULL) {
 	colorvec_t* gct = NULL;
 	int			gctLen = 0;
 	colorvec_t* lct = NULL;
 	int			lctLen = 0;
 	int			transparentColorIndex = -1;
+	byte*		outBufStart = outBuffer;
 
 	// for later
 	byte* imageIndices = NULL;
@@ -104,11 +111,21 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 		return;
 	}
 
+	bool outBufferValid = outBuffer && outLen;
+
+	if (!outBuffer != !outLen) {
+		ERROR("GIF decode argument error: Can only specify both outBuffer and outLen or neither. Specifying only one is invalid.");
+	}
+
+	CLEANOUTBUFFER;
+
 	if (sizeof(gifHeader_t) >= len) {
 		ERROR("File shorter than header");
 	}
 	gifHeader_t*	header = (gifHeader_t*)buffer;
-	ADVANCE(sizeof(gifHeader_t));
+	OUT_COPY(sizeof(gifHeader_t) - 1);
+	ADVANCE(sizeof(gifHeader_t) - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
+
 
 	if (memcmp(header->magic,"GIF",sizeof(header->magic)) || memcmp(header->version, "87a", sizeof(header->version)) && memcmp(header->version, "89a", sizeof(header->version))) {
 		ERROR("GIF magic/version incorrect");
@@ -120,12 +137,16 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 	if (header->flags & GIFHEADERFLAG_GCT) {
 		gctLen = 1 << ((header->flags & GIFHEADERFLAG_SIZEMASK)+1);
 		int	res = 1 << (((header->flags & GIFHEADERFLAG_RESMASK) >> 4) + 1);
+		if (header->bgColor >= gctLen) {
+			ERROR("Transparent color index higher or equal to global color table length.");
+		}
 		if (gctLen * sizeof(colorvec_t) >= len) {
 			ERROR("GIF not long enough to hold global color table");
 		}
 		gct = new colorvec_t[gctLen];
 		memcpy(gct,buffer, gctLen * sizeof(colorvec_t));
-		ADVANCE(gctLen * sizeof(colorvec_t) -1 ); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
+		OUT_COPY(gctLen * sizeof(colorvec_t));
+		ADVANCE(gctLen * sizeof(colorvec_t)); 
 	}
 
 
@@ -147,12 +168,24 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 			}
 			break;
 		case 0xF9: // Graphical control extension. We only care about whether we have a transparent color, rest we ignore. We don't support animations etc.
+
+			// this is the only extension we preserve due to it indicating transparency. we default all of the other data tho, just to be safe.
+			OUT_PUSHBYTE(type);
+			OUT_PUSHBYTE(extensionType);
+
 			CHECKLENGTH(6);
-			ADVANCE(1); // skip blocksize 
+			ADVANCE(1); OUT_PUSHBYTE(4); // skip blocksize (push out default value)
 			helper = *(byte*)buffer; // flags
 			ADVANCE(3); // advance flags and skip delayTime
 			if (helper & 1) {
 				transparentColorIndex = *(byte*)buffer;
+				if (transparentColorIndex >= gctLen) {
+					ERROR("Transparent color index higher or equal to global color table length.");
+				}
+				OUT_PUSHBYTE(1); OUT_PUSHZERO(2); OUT_COPY(1); OUT_PUSHBYTE(0);
+			}
+			else {
+				OUT_PUSHBYTE(0); OUT_PUSHZERO(4);
 			}
 			ADVANCE(2); // advance colorIndex and skip terminator
 			break;
@@ -180,10 +213,13 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 	if (type != 0x2C) {
 		ERROR("GIF corrupted/no image found");
 	}
+
+	OUT_PUSHBYTE(type);
 	
 	// the actual image
 	CHECKLENGTH(sizeof(gifLocalImage_t));
 	gifLocalImage_t*	localImage = (gifLocalImage_t*)buffer;
+	OUT_COPY(sizeof(gifLocalImage_t) - 1);
 	ADVANCE(sizeof(gifLocalImage_t)-1); // -1 cuz struct alignment. SIGH
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
@@ -198,17 +234,23 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 		ADVANCE(lctLen * sizeof(colorvec_t) - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
 		*/
 	}
+	if (localImage->flags & GIFLOCALIMAGEFLAG_INTERLACED) {
+		ERROR("GIF with interlacing not supported"); // might add later
+	}
 
 	if (localImage->width + localImage->left > header->width || localImage->height + localImage->top > header->height) {
 		ERROR("GIF local image breaks bounds of GIF");
 	}
 
-	CHECKLENGTH(1); byte lzwMinCodeSize = *(byte*)buffer; ADVANCE(1);
+	CHECKLENGTH(1); byte lzwMinCodeSize = *(byte*)buffer; OUT_PUSHBYTE(lzwMinCodeSize); ADVANCE(1);
 	if (lzwMinCodeSize >= 12) {
 		ERROR("GIF LZW min code size wants to be >= 12 bits. Nonsense.");
 	}
 	int lzwMinCodeCount = 1 << lzwMinCodeSize;
 
+	if (lzwMinCodeCount < gctLen) {
+		ERROR("GIF LZW min code size wants to be smaller than required for the global colorr table.");
+	}
 
 
 	size_t	oldLen = len;
@@ -234,8 +276,11 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 		CHECKLENGTH((size_t)helper + 1); 
 		memcpy(codes+codecount,buffer+1,helper);
 		codecount += helper;
+		OUT_COPY((size_t)helper + 1);
 		ADVANCE((size_t)helper + 1);
 	}
+
+	OUT_PUSHBYTE(0x3B); // and that's it. out file is finished.
 
 
 	codeEntry_t codeTable[4096] = { 0 }; // 12 bit code size so maximum 4096 entries.
@@ -350,7 +395,7 @@ void read_gif(const byte* buffer, size_t len, const char** error) {
 extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* file) {
 	FILE* f = NULL;
 	const char* error = NULL;
-	std::cout << file << "\n";
+	//std::cout << file << "\n";
 	if (!fopen_s(&f, file, "rb") && f) {
 		fseek(f, 0, SEEK_END);
 		size_t len = ftell(f);
@@ -361,9 +406,28 @@ extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* 
 			read += fread(buffer, 1, len, f);
 		}; 
 		fclose(f);
-		read_gif(buffer, len,&error);
+
+		byte* outbuffer = new byte[len];
+		size_t outLen = 0;
+
+		read_gif(buffer, len,&error, outbuffer, &outLen);
+
+#if 1
+		if (!error && outLen > 0) {
+			FILE* g = NULL;
+			if (!fopen_s(&g, "teststripped.gif", "wb") && g) {
+				size_t written = 0;
+				while (written < outLen) {
+					written += fwrite(outbuffer, 1, outLen, g);
+				};
+				fclose(g);
+			}
+		}
+
+#endif
+
 		if (error) {
-			std::cout << error << "\n";
+			//std::cout << error << "\n";
 		}
 		delete[] buffer;
 	}
