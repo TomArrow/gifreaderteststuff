@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <stdint.h>
 
 typedef unsigned char byte;
 
@@ -46,7 +47,7 @@ typedef enum codeEntryType_s {
 } codeEntryType_t;
 
 typedef struct codeEntry_s {
-	byte*				data;
+	byte* data;
 	uint32_t			len; // is this valid?
 	codeEntryType_t		type;
 } codeEntry_t;
@@ -64,10 +65,10 @@ typedef	color_t colorvec_t[3];
 #define OUT_PUSHZERO(howmuch) if(outBufferValid){ memset(outBuffer,0,(howmuch)); outBuffer+=(howmuch); (*outLen) += (howmuch); } // for zeroing a bit when rewriting
 
 int lzw_getcode(byte* buffer, uint32_t bitoffset, byte bits, int bufferLen) {
-	if (bitoffset + bits > (bufferLen<<3)) {
+	if (bitoffset + bits > (bufferLen << 3)) {
 		return -1;
 	}
-	
+
 	uint32_t* nudgedBuffer = (uint32_t*)(buffer + ((size_t)bitoffset >> 3));
 	uint32_t value = *nudgedBuffer >> (bitoffset & 7);
 	value &= ((1 << bits) - 1);
@@ -79,13 +80,13 @@ static byte roots[256] = { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
 
 // specify outBuffer and outLen if you wish to rewrite the file.
 // outbuffer MUST be at least the same length as buffer.
-void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer = NULL, size_t* outLen = NULL) {
+void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffer = NULL, size_t* outLen = NULL) {
 	colorvec_t* gct = NULL;
 	int			gctLen = 0;
 	colorvec_t* lct = NULL;
 	int			lctLen = 0;
 	int			transparentColorIndex = -1;
-	byte*		outBufStart = outBuffer;
+	byte* outBufStart = outBuffer;
 
 	// for later
 	byte* imageIndices = NULL;
@@ -123,12 +124,12 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 	if (sizeof(gifHeader_t) >= len) {
 		ERROR("File shorter than header");
 	}
-	gifHeader_t*	header = (gifHeader_t*)buffer;
+	gifHeader_t* header = (gifHeader_t*)buffer;
 	OUT_COPY(sizeof(gifHeader_t) - 1);
 	ADVANCE(sizeof(gifHeader_t) - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
 
 
-	if (memcmp(header->magic,"GIF",sizeof(header->magic)) || memcmp(header->version, "87a", sizeof(header->version)) && memcmp(header->version, "89a", sizeof(header->version))) {
+	if (memcmp(header->magic, "GIF", sizeof(header->magic)) || memcmp(header->version, "87a", sizeof(header->version)) && memcmp(header->version, "89a", sizeof(header->version))) {
 		ERROR("GIF magic/version incorrect");
 	}
 	if ((header->width & (header->width - 1)) || (header->height & (header->height - 1))) {
@@ -136,7 +137,7 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 	}
 
 	if (header->flags & GIFHEADERFLAG_GCT) {
-		gctLen = 1 << ((header->flags & GIFHEADERFLAG_SIZEMASK)+1);
+		gctLen = 1 << ((header->flags & GIFHEADERFLAG_SIZEMASK) + 1);
 		int	res = 1 << (((header->flags & GIFHEADERFLAG_RESMASK) >> 4) + 1);
 		if (header->bgColor >= gctLen) {
 			ERROR("Transparent color index higher or equal to global color table length.");
@@ -145,9 +146,9 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 			ERROR("GIF not long enough to hold global color table");
 		}
 		gct = new colorvec_t[gctLen];
-		memcpy(gct,buffer, gctLen * sizeof(colorvec_t));
+		memcpy(gct, buffer, gctLen * sizeof(colorvec_t));
 		OUT_COPY(gctLen * sizeof(colorvec_t));
-		ADVANCE(gctLen * sizeof(colorvec_t)); 
+		ADVANCE(gctLen * sizeof(colorvec_t));
 	}
 
 
@@ -194,7 +195,7 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 			helper = 1;
 			while (helper) {
 				helper = *(byte*)buffer; // bytes in block
-				CHECKLENGTH((size_t)helper+1); ADVANCE((size_t)helper+1);
+				CHECKLENGTH((size_t)helper + 1); ADVANCE((size_t)helper + 1);
 			}
 			break;
 		case 0xFF: // Application extension (XMP data or random shit)
@@ -202,12 +203,12 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 			helper = 1;
 			while (helper) {
 				helper = *(byte*)buffer; // bytes in block
-				CHECKLENGTH((size_t)helper+1); ADVANCE((size_t)helper+1);
+				CHECKLENGTH((size_t)helper + 1); ADVANCE((size_t)helper + 1);
 			}
 			break;
 
 		}
-		
+
 		CHECKLENGTH(1); type = *(byte*)buffer;	ADVANCE(1);
 	}
 
@@ -216,12 +217,12 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 	}
 
 	OUT_PUSHBYTE(type);
-	
+
 	// the actual image
 	CHECKLENGTH(sizeof(gifLocalImage_t));
-	gifLocalImage_t*	localImage = (gifLocalImage_t*)buffer;
+	gifLocalImage_t* localImage = (gifLocalImage_t*)buffer;
 	OUT_COPY(sizeof(gifLocalImage_t) - 1);
-	ADVANCE(sizeof(gifLocalImage_t)-1); // -1 cuz struct alignment. SIGH
+	ADVANCE(sizeof(gifLocalImage_t) - 1); // -1 cuz struct alignment. SIGH
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
 		ERROR("GIF with local color table not supported");
@@ -268,14 +269,14 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 	// rewind, make the buffer and go again
 	len = oldLen;
 	buffer = oldBuffer;
-	codes = new byte[codecount+4]; // +4 so we can comfortably read variable-width bits through uint32_t casting without worrying about an overflow.
+	codes = new byte[codecount + 4]; // +4 so we can comfortably read variable-width bits through uint32_t casting without worrying about an overflow.
 
 	helper = 1;
 	codecount = 0;
 	while (helper) {
 		helper = *(byte*)buffer; // bytes in block
-		CHECKLENGTH((size_t)helper + 1); 
-		memcpy(codes+codecount,buffer+1,helper);
+		CHECKLENGTH((size_t)helper + 1);
+		memcpy(codes + codecount, buffer + 1, helper);
 		codecount += helper;
 		OUT_COPY((size_t)helper + 1);
 		ADVANCE((size_t)helper + 1);
@@ -308,15 +309,15 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 	imageIndices = new byte[localImagePixels];
 
 	size_t bitoffset = 0;
-	int codewidth = lzwMinCodeSize+1;
-	int code,lastCode=-1;
+	int codewidth = lzwMinCodeSize + 1;
+	int code, lastCode = -1;
 	bool done = false;
 	size_t outIndex = 0;
-	for (i = 0,bitoffset=0; !done; i++) {
-		if ((nextCodeEntry - codeTable) & ~((1<<codewidth) -1) && codewidth < 12) {
+	for (i = 0, bitoffset = 0; !done; i++) {
+		if ((nextCodeEntry - codeTable) & ~((1 << codewidth) - 1) && codewidth < 12) {
 			codewidth++;
 		}
-		code = lzw_getcode(codes, bitoffset, codewidth, codecount+4);
+		code = lzw_getcode(codes, bitoffset, codewidth, codecount + 4);
 		bitoffset += codewidth;
 		if (code < 0) {
 			ERROR("GIF Error reading LZW code.");
@@ -326,14 +327,14 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 		}
 		switch (codeTable[code].type) {
 		case LZWCODE_USED:
-			if ((outIndex+codeTable[code].len-1) >= localImagePixels) {
+			if ((outIndex + codeTable[code].len - 1) >= localImagePixels) {
 				ERROR("GIF Error decoding LZW, overflew local image buffer at used.");
 			}
 			memcpy(imageIndices + outIndex, codeTable[code].data, codeTable[code].len);
-			outIndex += codeTable[code].len-1;
+			outIndex += codeTable[code].len - 1;
 			if (lastCode >= 0 && nextCodeEntry != codeTableEnd) {
 				int newLen = codeTable[lastCode].len + 1;
-				byte* newSymbol = imageIndices + outIndex - (codeTable[lastCode].len+ codeTable[code].len) + 1;
+				byte* newSymbol = imageIndices + outIndex - (codeTable[lastCode].len + codeTable[code].len) + 1;
 				nextCodeEntry->type = LZWCODE_USED;
 				nextCodeEntry->data = newSymbol;
 				nextCodeEntry->len = newLen;
@@ -343,11 +344,11 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 			break;
 		case LZWCODE_EMPTY:
 			if (lastCode >= 0) {
-				if (nextCodeEntry- codeTable != code) {
+				if (nextCodeEntry - codeTable != code) {
 					ERROR("GIF Error decoding LZW, next code entry not equal to code.");
 				}
 				int newLen = codeTable[lastCode].len + 1;
-				if ((outIndex+ newLen-1) >= localImagePixels) {
+				if ((outIndex + newLen - 1) >= localImagePixels) {
 					ERROR("GIF Error decoding LZW, overflew local image buffer at empty.");
 				}
 				if (nextCodeEntry == codeTableEnd) {
@@ -393,7 +394,14 @@ void read_gif(const byte* buffer, size_t len, const char** error,byte* outBuffer
 
 }
 
-extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* file) {
+#if _WIN32
+#define INSTRUMENTATION_FUNC_PROPS  __declspec(noinline) __declspec(dllexport)
+#else
+#define INSTRUMENTATION_FUNC_PROPS  __attribute__ ((noinline)) __attribute__((dllexport))
+#define fopen_s(pFile,filename,mode) ((*(pFile))=fopen((filename),  (mode)))==NULL
+#endif
+
+extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 	FILE* f = NULL;
 	const char* error = NULL;
 	//std::cout << file << "\n";
@@ -405,13 +413,13 @@ extern "C"  __declspec(noinline) __declspec(dllexport) int loadfile(const char* 
 		size_t read = 0;
 		while (read < len) {
 			read += fread(buffer, 1, len, f);
-		}; 
+		};
 		fclose(f);
 
 		byte* outbuffer = new byte[len];
 		size_t outLen = 0;
 
-		read_gif(buffer, len,&error, outbuffer, &outLen);
+		read_gif(buffer, len, &error, outbuffer, &outLen);
 
 #if 0
 		if (!error && outLen > 0) {
