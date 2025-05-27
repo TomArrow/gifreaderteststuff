@@ -404,7 +404,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 	FILE* f = NULL;
 	const char* error = NULL;
-	//std::cout << file << "\n";
+	std::cout << file << "\n";
 	if (!fopen_s(&f, file, "rb") && f) {
 		fseek(f, 0, SEEK_END);
 		size_t len = ftell(f);
@@ -436,7 +436,7 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 #endif
 
 		if (error) {
-			//std::cout << error << "\n";
+			std::cout << error << "\n";
 		}
 		delete[] buffer;
 		delete[] outbuffer;
