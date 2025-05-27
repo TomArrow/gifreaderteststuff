@@ -498,7 +498,7 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 
 		read_gif(buffer, len, &error, outbuffer, &outLen);
 
-#if 0
+#if 1
 		if (!error && outLen > 0) {
 			FILE* g = NULL;
 			if (!fopen_s(&g, "teststripped.gif", "wb") && g) {
