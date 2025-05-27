@@ -195,6 +195,12 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	if (memcmp(header->magic, "GIF", sizeof(header->magic)) || memcmp(header->version, "87a", sizeof(header->version)) && memcmp(header->version, "89a", sizeof(header->version))) {
 		ERROR("GIF magic/version incorrect");
 	}
+	if (header->width <= 0 || header->height <= 0) {
+		ERROR("GIF resolution must not be 0");
+	}
+	if (header->width >1024 || header->height>1024) {
+		ERROR("GIF too big, max resolution is 1024x1024");
+	}
 	if ((header->width & (header->width - 1)) || (header->height & (header->height - 1))) {
 		//ERROR("GIF not a power of 2");
 	}
@@ -216,6 +222,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		memcpy(gct, buffer, gctLen * sizeof(colorvec_t));
 		OUT_COPY(gctLen * sizeof(colorvec_t));
 		ADVANCE(gctLen * sizeof(colorvec_t));
+	}
+	else {
+		ERROR("GIF has no global color table");
 	}
 
 
@@ -295,6 +304,10 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	localImage->left = LittleShort(localImage->left);
 	localImage->width = LittleShort(localImage->width);
 	localImage->height = LittleShort(localImage->height);
+
+	if (localImage->width <= 0 || localImage->height <= 0) {
+		ERROR("GIF local image resolution must not be 0");
+	}
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
 		ERROR("GIF with local color table not supported");
