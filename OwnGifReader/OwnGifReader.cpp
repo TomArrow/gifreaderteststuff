@@ -7,6 +7,8 @@
 
 typedef unsigned char byte;
 
+#define OUTPUTS 2
+
 typedef struct gifHeader_s {
 	byte		magic[3];
 	byte		version[3];
@@ -135,6 +137,10 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	if ((header->width & (header->width - 1)) || (header->height & (header->height - 1))) {
 		//ERROR("GIF not a power of 2");
 	}
+
+#if OUTPUTS>=2
+	std::cout << "Gif resolution: " << header->width << "x" << header->height << "\n";
+#endif
 
 	if (header->flags & GIFHEADERFLAG_GCT) {
 		gctLen = 1 << ((header->flags & GIFHEADERFLAG_SIZEMASK) + 1);
@@ -318,6 +324,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 			codewidth++;
 		}
 		code = lzw_getcode(codes, bitoffset, codewidth, codecount + 4);
+#if OUTPUTS>=2
+		std::cout << "LZW code: " << code << "\n";
+#endif
 		bitoffset += codewidth;
 		if (code < 0) {
 			ERROR("GIF Error reading LZW code.");
@@ -404,7 +413,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 	FILE* f = NULL;
 	const char* error = NULL;
+#if OUTPUTS
 	std::cout << file << "\n";
+#endif
 	if (!fopen_s(&f, file, "rb") && f) {
 		fseek(f, 0, SEEK_END);
 		size_t len = ftell(f);
@@ -435,9 +446,11 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 
 #endif
 
+#if OUTPUTS
 		if (error) {
 			std::cout << error << "\n";
 		}
+#endif
 		delete[] buffer;
 		delete[] outbuffer;
 	}
