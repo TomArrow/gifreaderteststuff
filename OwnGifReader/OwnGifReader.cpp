@@ -9,7 +9,7 @@ typedef unsigned char byte;
 
 
 
-#define OUTPUTS 2
+#define OUTPUTS 1
 
 
 inline int16_t ShortSwap(int16_t l) {
@@ -498,7 +498,7 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 
 		read_gif(buffer, len, &error, outbuffer, &outLen);
 
-#if 1
+#if 0
 		if (!error && outLen > 0) {
 			FILE* g = NULL;
 			if (!fopen_s(&g, "teststripped.gif", "wb") && g) {
