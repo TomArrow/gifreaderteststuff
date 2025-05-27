@@ -7,7 +7,65 @@
 
 typedef unsigned char byte;
 
+
+
 #define OUTPUTS 2
+
+
+inline int16_t ShortSwap(int16_t l) {
+	uint16_t us = *(uint16_t*)&l;
+
+	return
+		((us & 0x00FFu) << 8u) |
+		((us & 0xFF00u) >> 8u);
+}
+
+inline int32_t LongSwap(int32_t l) {
+	uint32_t ui = *(uint32_t*)&l;
+
+	return
+		((ui & 0x000000FFu) << 24u) |
+		((ui & 0x0000FF00u) << 8u) |
+		((ui & 0x00FF0000u) >> 8u) |
+		((ui & 0xFF000000u) >> 24u);
+
+}
+
+typedef union {
+	float f;
+	int i;
+	unsigned int ui;
+} floatint_t;
+
+inline float FloatSwap(const float* f) {
+	floatint_t out;
+
+	out.f = *f;
+	out.i = LongSwap(out.i);
+
+	return out.f;
+}
+
+#if (defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN)
+#pragma message "Assuming Big Endian"
+#define LittleShort(x) ShortSwap(x)
+#define LittleLong(x) LongSwap(x)
+#define LittleFloat(x) FloatSwap(x)
+#define BigShort
+#define BigLong
+#define BigFloat
+#else
+#pragma message "Assuming Little Endian"
+#define BigShort(x) ShortSwap(x)
+#define BigLong(x) LongSwap(x)
+#define BigFloat(x) FloatSwap(x)
+#define LittleShort
+#define LittleLong
+#define LittleFloat
+#endif
+
+
+
 
 typedef struct gifHeader_s {
 	byte		magic[3];
@@ -72,7 +130,7 @@ int lzw_getcode(byte* buffer, uint32_t bitoffset, byte bits, int bufferLen) {
 	}
 
 	uint32_t* nudgedBuffer = (uint32_t*)(buffer + ((size_t)bitoffset >> 3));
-	uint32_t value = *nudgedBuffer >> (bitoffset & 7);
+	uint32_t value = LittleLong(*nudgedBuffer) >> (bitoffset & 7);
 	value &= ((1 << bits) - 1);
 
 	return value;
@@ -130,6 +188,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	OUT_COPY(sizeof(gifHeader_t) - 1);
 	ADVANCE(sizeof(gifHeader_t) - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
 
+
+	header->width = LittleShort(header->width);
+	header->height = LittleShort(header->height);
 
 	if (memcmp(header->magic, "GIF", sizeof(header->magic)) || memcmp(header->version, "87a", sizeof(header->version)) && memcmp(header->version, "89a", sizeof(header->version))) {
 		ERROR("GIF magic/version incorrect");
@@ -229,6 +290,11 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	gifLocalImage_t* localImage = (gifLocalImage_t*)buffer;
 	OUT_COPY(sizeof(gifLocalImage_t) - 1);
 	ADVANCE(sizeof(gifLocalImage_t) - 1); // -1 cuz struct alignment. SIGH
+
+	localImage->top = LittleShort(localImage->top);
+	localImage->left = LittleShort(localImage->left);
+	localImage->width = LittleShort(localImage->width);
+	localImage->height = LittleShort(localImage->height);
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
 		ERROR("GIF with local color table not supported");
