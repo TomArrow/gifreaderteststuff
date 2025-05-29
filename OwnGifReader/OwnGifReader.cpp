@@ -145,12 +145,19 @@ typedef struct gifParsedImage_s {
 	int		bufferSize;
 	int		width;
 	int		height;
+	bool	transparency;
 } gifParsedImage_t;
+
+typedef enum gifParseFlags_s {
+	GIFPARSE_ALPHA = (1<<0),
+	GIFPARSE_FLIPVERT = (1<<1),
+	GIFPARSE_BGR = (1<<2)
+} gifParseFlags_t;
 
 // specify outBuffer and outLen if you wish to rewrite the file.
 // outbuffer MUST be at least the same length as buffer.
 // rgbAOutBuffer will get the address of an rgba buffer
-void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, byte* outBuffer = NULL, size_t* outLen = NULL, gifParsedImage_t* outImage = NULL) {
+void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags, byte* outBuffer = NULL, size_t* outLen = NULL, gifParsedImage_t* outImage = NULL) {
 	colorvec_t* gct = NULL;
 	int			gctLen = 0;
 	colorvec_t* lct = NULL;
@@ -527,7 +534,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 		imageIndices = imageIndicesDeinterlaced;
 	}
 
-	int pixelWidth = alpha ? sizeof(colorvec_t) + 1 : sizeof(colorvec_t);
+	int pixelWidth = (parseFlags & GIFPARSE_ALPHA) ? sizeof(colorvec_t) + 1 : sizeof(colorvec_t);
 	int stride = pixelWidth * (size_t)header->width;
 	int outBufferSize =  (size_t)header->height * stride;
 	imageData = new byte[outBufferSize];
@@ -538,7 +545,11 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 
 	// is this safe? it should be... could do some bounds checks but unless i really messed up nothing should really go wrong here.
 	int colorIndex;
-	for (int y = 0; y < header->height; y++) {
+	int rOffset = (parseFlags & GIFPARSE_BGR) ? 2 : 0;
+	int bOffset = (parseFlags & GIFPARSE_BGR) ? 0 : 2;
+	int bufferY = (parseFlags & GIFPARSE_FLIPVERT) ? header->height -1 : 0;
+	int bufferYIncrement = (parseFlags & GIFPARSE_FLIPVERT) ? -1 : 1;
+	for (int y = 0; y < header->height; y++,bufferY += bufferYIncrement) {
 		for (int x = 0; x < header->width; x++) {
 			if (x < localImage->left || x >= (localImage->left+localImage->width) || y < localImage->top || y >= (localImage->top + localImage->height)) {
 				colorIndex = header->bgColor;
@@ -547,11 +558,11 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 				colorIndex = imageIndices[(y-localImage->top)*localImage->width + (x-localImage->left)];
 			}
 
-			imageData[y * stride + x * pixelWidth + 0] = gct[colorIndex][0];
-			imageData[y * stride + x * pixelWidth + 1] = gct[colorIndex][1];
-			imageData[y * stride + x * pixelWidth + 2] = gct[colorIndex][2];
-			if (alpha) {
-				imageData[y * stride + x * pixelWidth + 3] = colorIndex == transparentColorIndex ? 0 : 255;
+			imageData[bufferY * stride + x * pixelWidth + rOffset] = gct[colorIndex][0];
+			imageData[bufferY * stride + x * pixelWidth + 1] = gct[colorIndex][1];
+			imageData[bufferY * stride + x * pixelWidth + bOffset] = gct[colorIndex][2];
+			if (parseFlags & GIFPARSE_ALPHA) {
+				imageData[bufferY * stride + x * pixelWidth + 3] = colorIndex == transparentColorIndex ? 0 : 255;
 			}
 		}
 	}
@@ -560,6 +571,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 	outImage->bufferSize = outBufferSize;
 	outImage->width = header->width;
 	outImage->height = header->height;
+	outImage->transparency = transparentColorIndex != -1;
 
 
 	goto cleanup;
@@ -572,6 +584,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 #define INSTRUMENTATION_FUNC_PROPS  __attribute__ ((noinline)) __attribute__((dllexport))
 #define fopen_s(pFile,filename,mode) ((*(pFile))=fopen((filename),  (mode)))==NULL
 #endif
+
 
 extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 	FILE* f = NULL;
@@ -595,21 +608,51 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 
 		gifParsedImage_t gifImage = { 0 };
 
-		read_gif(buffer, len, &error,false, outbuffer, &outLen,&gifImage);
+		int parseFlags = GIFPARSE_ALPHA;
+		if (parseFlags & GIFPARSE_ALPHA) {
+			parseFlags |= GIFPARSE_FLIPVERT | GIFPARSE_BGR;
+		}
+
+		read_gif(buffer, len, &error, parseFlags, outbuffer, &outLen,&gifImage);
 
 #if 1
 		if (!error && gifImage.buffer) {
 			FILE* g = NULL;
-			if (!fopen_s(&g, "testdecode.ppm", "wb") && g) {
-				char buf[40];
-				buf[0] = '\0';
-				sprintf_s(buf, sizeof(buf), "P6\n%d %d\n255\n",gifImage.width,gifImage.height);
-				fwrite(buf, 1, strlen(buf), g);
-				size_t written = 0;
-				while (written < gifImage.bufferSize) {
-					written += fwrite(gifImage.buffer+written, 1, gifImage.bufferSize -written, g);
-				};
-				fclose(g);
+			if (!(parseFlags & GIFPARSE_ALPHA)) {
+				if (!fopen_s(&g, "testdecode.ppm", "wb") && g) {
+					char buf[40];
+					buf[0] = '\0';
+					sprintf_s(buf, sizeof(buf), "P6\n%d %d\n255\n", gifImage.width, gifImage.height);
+					fwrite(buf, 1, strlen(buf), g);
+					size_t written = 0;
+					while (written < gifImage.bufferSize) {
+						written += fwrite(gifImage.buffer + written, 1, gifImage.bufferSize - written, g);
+					};
+					fclose(g);
+				}
+			}
+			else {
+				if (!fopen_s(&g, "testdecode.tga", "wb") && g) {
+					byte buf[18];
+					memset(buf, 0, sizeof(buf));
+					buf[2] = 2;
+					buf[7] = 32;
+					buf[12] = gifImage.width & 0x00FF;
+					buf[13] = (gifImage.width & 0xFF00) >> 8;
+					buf[14] = gifImage.height & 0x00FF;
+					buf[15] = (gifImage.height & 0xFF00) >> 8;
+					buf[16] = 32;
+
+					size_t written = 0;
+					while (written < sizeof(buf)) {
+						written += fwrite(buf + written, 1, sizeof(buf) - written, g);
+					};
+					written = 0;
+					while (written < gifImage.bufferSize) {
+						written += fwrite(gifImage.buffer + written, 1, gifImage.bufferSize - written, g);
+					};
+					fclose(g);
+				}
 			}
 			delete[] gifImage.buffer;
 		}
