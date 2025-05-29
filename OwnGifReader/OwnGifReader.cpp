@@ -216,7 +216,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 		ERROR("GIF resolution must not be 0");
 	}
 	if (header->width >1024 || header->height>1024) {
-		//ERROR("GIF too big, max resolution is 1024x1024");
+		ERROR("GIF too big, max resolution is 1024x1024");
 	}
 	if ((header->width & (header->width - 1)) || (header->height & (header->height - 1))) {
 		//ERROR("GIF not a power of 2");
@@ -326,7 +326,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 		ERROR("GIF local image resolution must not be 0");
 	}
 	if (localImage->width > 1024 || localImage->height > 1024) {
-		//ERROR("GIF local image too big, max resolution is 1024x1024");
+		ERROR("GIF local image too big, max resolution is 1024x1024");
 	}
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
@@ -511,16 +511,16 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 	if (localImage->flags & GIFLOCALIMAGEFLAG_INTERLACED) {
 		byte* imageIndicesDeinterlaced = new byte[localImagePixels];
 		int inRow = 0;
-		for (int y = 0; y < localImage->height; y+=8) {
+		for (int y = 0; y < localImage->height && inRow < localImage->height; y+=8) {
 			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
 		}
-		for (int y = 4; y < localImage->height; y+=8) {
+		for (int y = 4; y < localImage->height && inRow < localImage->height; y+=8) {
 			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
 		}
-		for (int y = 2; y < localImage->height; y+=4) {
+		for (int y = 2; y < localImage->height && inRow < localImage->height; y+=4) {
 			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
 		}
-		for (int y = 1; y < localImage->height; y+=2) {
+		for (int y = 1; y < localImage->height && inRow < localImage->height; y+=2) {
 			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
 		}
 		delete[] imageIndices;
@@ -536,6 +536,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, by
 		ERROR("GIF decoding failed. No GCT for some reason.");
 	}
 
+	// is this safe? it should be... could do some bounds checks but unless i really messed up nothing should really go wrong here.
 	int colorIndex;
 	for (int y = 0; y < header->height; y++) {
 		for (int x = 0; x < header->width; x++) {
