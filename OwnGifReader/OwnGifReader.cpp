@@ -124,8 +124,10 @@ typedef	color_t colorvec_t[3];
 #define OUT_PUSHBYTE(b) if(outBufferValid){ *outBuffer=(byte)(b);outBuffer++;(*outLen)++; } // for pushing a single byte when rewriting
 #define OUT_PUSHZERO(howmuch) if(outBufferValid){ memset(outBuffer,0,(howmuch)); outBuffer+=(howmuch); (*outLen) += (howmuch); } // for zeroing a bit when rewriting
 
+#define LZW_BUFFER_EXTRABYTES 4
+
 int lzw_getcode(byte* buffer, uint32_t bitoffset, byte bits, int bufferLen) {
-	if (bitoffset + bits > (bufferLen << 3)) {
+	if (bitoffset + bits > ((bufferLen- LZW_BUFFER_EXTRABYTES) << 3)) {
 		return -1;
 	}
 
@@ -138,9 +140,17 @@ int lzw_getcode(byte* buffer, uint32_t bitoffset, byte bits, int bufferLen) {
 
 static byte roots[256] = { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 };
 
+typedef struct gifParsedImage_s {
+	byte*	buffer;
+	int		bufferSize;
+	int		width;
+	int		height;
+} gifParsedImage_t;
+
 // specify outBuffer and outLen if you wish to rewrite the file.
 // outbuffer MUST be at least the same length as buffer.
-void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffer = NULL, size_t* outLen = NULL) {
+// rgbAOutBuffer will get the address of an rgba buffer
+void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffer = NULL, size_t* outLen = NULL, gifParsedImage_t* outImage = NULL) {
 	colorvec_t* gct = NULL;
 	int			gctLen = 0;
 	colorvec_t* lct = NULL;
@@ -152,6 +162,10 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	byte* imageIndices = NULL;
 	byte* imageData = NULL;
 	byte* codes = NULL;
+
+	if (outImage) {
+		memset(outImage, 0, sizeof(gifParsedImage_t));
+	}
 
 	if (false) { // yea this is ugly lol. i put it at the top so that the goto doesn't jump down bypassing initializations
 	cleanup:
@@ -177,6 +191,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 
 	if (!outBuffer != !outLen) {
 		ERROR("GIF decode argument error: Can only specify both outBuffer and outLen or neither. Specifying only one is invalid.");
+	}
+	if (!outBuffer && !outImage) {
+		ERROR("GIF decode argument error: Neither outBuffer nor rgbAOutBuffer are specified. Aborting.");
 	}
 
 	CLEANOUTBUFFER;
@@ -308,6 +325,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	if (localImage->width <= 0 || localImage->height <= 0) {
 		ERROR("GIF local image resolution must not be 0");
 	}
+	if (localImage->width > 1024 || localImage->height > 1024) {
+		ERROR("GIF local image too big, max resolution is 1024x1024");
+	}
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
 		ERROR("GIF with local color table not supported");
@@ -336,7 +356,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	int lzwMinCodeCount = 1 << lzwMinCodeSize;
 
 	if (lzwMinCodeCount < gctLen) {
-		ERROR("GIF LZW min code size wants to be smaller than required for the global colorr table.");
+		ERROR("GIF LZW min code size wants to be smaller than required for the global color table.");
 	}
 
 
@@ -354,7 +374,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 	// rewind, make the buffer and go again
 	len = oldLen;
 	buffer = oldBuffer;
-	codes = new byte[codecount + 4]; // +4 so we can comfortably read variable-width bits through uint32_t casting without worrying about an overflow.
+	codes = new byte[codecount + LZW_BUFFER_EXTRABYTES]; // +4 so we can comfortably read variable-width bits through uint32_t casting without worrying about an overflow.
 
 	helper = 1;
 	codecount = 0;
@@ -402,7 +422,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		if ((nextCodeEntry - codeTable) & ~((1 << codewidth) - 1) && codewidth < 12) {
 			codewidth++;
 		}
-		code = lzw_getcode(codes, bitoffset, codewidth, codecount + 4);
+		code = lzw_getcode(codes, bitoffset, codewidth, codecount + LZW_BUFFER_EXTRABYTES);
 #if OUTPUTS>=2
 		std::cout << "LZW code: " << code << "\n";
 #endif
@@ -416,13 +436,17 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		switch (codeTable[code].type) {
 		case LZWCODE_USED:
 			if ((outIndex + codeTable[code].len - 1) >= localImagePixels) {
-				ERROR("GIF Error decoding LZW, overflew local image buffer at used.");
+				ERROR("GIF Error decoding LZW, overflew local image buffer at LZWCODE_USED.");
 			}
 			memcpy(imageIndices + outIndex, codeTable[code].data, codeTable[code].len);
 			outIndex += codeTable[code].len - 1;
 			if (lastCode >= 0 && nextCodeEntry != codeTableEnd) {
 				int newLen = codeTable[lastCode].len + 1;
 				byte* newSymbol = imageIndices + outIndex - (codeTable[lastCode].len + codeTable[code].len) + 1;
+				if (newSymbol < imageIndices) {
+					// can this even happen? idk
+					ERROR("GIF Error decoding LZW, underflew local image buffer at LZWCODE_USED. Wtf that's sophisticated.");
+				}
 				nextCodeEntry->type = LZWCODE_USED;
 				nextCodeEntry->data = newSymbol;
 				nextCodeEntry->len = newLen;
@@ -437,7 +461,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 				}
 				int newLen = codeTable[lastCode].len + 1;
 				if ((outIndex + newLen - 1) >= localImagePixels) {
-					ERROR("GIF Error decoding LZW, overflew local image buffer at empty.");
+					ERROR("GIF Error decoding LZW, overflew local image buffer at LZWCODE_EMPTY.");
 				}
 				if (nextCodeEntry == codeTableEnd) {
 					ERROR("GIF Error decoding LZW, table full but code not in dictionary. WTF.");
@@ -446,6 +470,10 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 				outIndex += codeTable[lastCode].len;
 				imageIndices[outIndex] = codeTable[lastCode].data[0];
 				byte* newSymbol = imageIndices + outIndex - newLen + 1;
+				if (newSymbol < imageIndices) {
+					// can this even happen? idk
+					ERROR("GIF Error decoding LZW, underflew local image buffer at LZWCODE_EMPTY. Wtf that's sophisticated.");
+				}
 				nextCodeEntry->type = LZWCODE_USED;
 				nextCodeEntry->data = newSymbol;
 				nextCodeEntry->len = newLen;
@@ -475,6 +503,10 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		continue;
 	}
 
+	if (!outImage) {
+		// we were only asked to rewrite the image. No need to fully decode it.
+		return;
+	}
 	imageData = new byte[(size_t)header->width * (size_t)header->height * sizeof(colorvec_t)];
 
 
@@ -509,7 +541,7 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 		byte* outbuffer = new byte[len];
 		size_t outLen = 0;
 
-		read_gif(buffer, len, &error, outbuffer, &outLen);
+		read_gif(buffer, len, &error, outbuffer, &outLen,NULL);
 
 #if 0
 		if (!error && outLen > 0) {
