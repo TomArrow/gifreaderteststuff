@@ -88,11 +88,11 @@ typedef struct gifLocalImage_s {
 	uint16_t	top;
 	uint16_t	width;
 	uint16_t	height;
-#define GIFLOCALIMAGEFLAG_LCT			1
-#define GIFLOCALIMAGEFLAG_INTERLACED	2
-#define GIFLOCALIMAGEFLAG_SORT			4
+#define GIFLOCALIMAGEFLAG_SIZEMASK		7
 #define GIFLOCALIMAGEFLAG_RESERVED		(3<<3)
-#define GIFLOCALIMAGEFLAG_SIZEMASK		(7<<4)
+#define GIFLOCALIMAGEFLAG_SORT			1<<5
+#define GIFLOCALIMAGEFLAG_INTERLACED	1<<6
+#define GIFLOCALIMAGEFLAG_LCT			1<<7
 	byte		flags;
 	byte		filler; // struct has to align to the uint16_t, yikes. so just subtract 1 when advancing.
 } gifLocalImage_t;
@@ -150,7 +150,7 @@ typedef struct gifParsedImage_s {
 // specify outBuffer and outLen if you wish to rewrite the file.
 // outbuffer MUST be at least the same length as buffer.
 // rgbAOutBuffer will get the address of an rgba buffer
-void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffer = NULL, size_t* outLen = NULL, gifParsedImage_t* outImage = NULL) {
+void read_gif(const byte* buffer, size_t len, const char** error, bool alpha, byte* outBuffer = NULL, size_t* outLen = NULL, gifParsedImage_t* outImage = NULL) {
 	colorvec_t* gct = NULL;
 	int			gctLen = 0;
 	colorvec_t* lct = NULL;
@@ -175,7 +175,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		if (imageIndices) {
 			delete[] imageIndices;
 		}
-		if (imageData) {
+		if (imageData && (!outImage || !outImage->buffer)) { // only clean up if we didn't end up actually returning it
 			delete[] imageData;
 		}
 		if (lct) {
@@ -216,7 +216,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		ERROR("GIF resolution must not be 0");
 	}
 	if (header->width >1024 || header->height>1024) {
-		ERROR("GIF too big, max resolution is 1024x1024");
+		//ERROR("GIF too big, max resolution is 1024x1024");
 	}
 	if ((header->width & (header->width - 1)) || (header->height & (header->height - 1))) {
 		//ERROR("GIF not a power of 2");
@@ -326,7 +326,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		ERROR("GIF local image resolution must not be 0");
 	}
 	if (localImage->width > 1024 || localImage->height > 1024) {
-		ERROR("GIF local image too big, max resolution is 1024x1024");
+		//ERROR("GIF local image too big, max resolution is 1024x1024");
 	}
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
@@ -342,7 +342,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		*/
 	}
 	if (localImage->flags & GIFLOCALIMAGEFLAG_INTERLACED) {
-		ERROR("GIF with interlacing not supported"); // might add later
+		//ERROR("GIF with interlacing not supported"); // might add later
 	}
 
 	if (localImage->width + localImage->left > header->width || localImage->height + localImage->top > header->height) {
@@ -507,7 +507,58 @@ void read_gif(const byte* buffer, size_t len, const char** error, byte* outBuffe
 		// we were only asked to rewrite the image. No need to fully decode it.
 		return;
 	}
-	imageData = new byte[(size_t)header->width * (size_t)header->height * sizeof(colorvec_t)];
+
+	if (localImage->flags & GIFLOCALIMAGEFLAG_INTERLACED) {
+		byte* imageIndicesDeinterlaced = new byte[localImagePixels];
+		int inRow = 0;
+		for (int y = 0; y < localImage->height; y+=8) {
+			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
+		}
+		for (int y = 4; y < localImage->height; y+=8) {
+			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
+		}
+		for (int y = 2; y < localImage->height; y+=4) {
+			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
+		}
+		for (int y = 1; y < localImage->height; y+=2) {
+			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
+		}
+		delete[] imageIndices;
+		imageIndices = imageIndicesDeinterlaced;
+	}
+
+	int pixelWidth = alpha ? sizeof(colorvec_t) + 1 : sizeof(colorvec_t);
+	int stride = pixelWidth * (size_t)header->width;
+	int outBufferSize =  (size_t)header->height * stride;
+	imageData = new byte[outBufferSize];
+
+	if (!gct) {
+		ERROR("GIF decoding failed. No GCT for some reason.");
+	}
+
+	int colorIndex;
+	for (int y = 0; y < header->height; y++) {
+		for (int x = 0; x < header->width; x++) {
+			if (x < localImage->left || x >= (localImage->left+localImage->width) || y < localImage->top || y >= (localImage->top + localImage->height)) {
+				colorIndex = header->bgColor;
+			}
+			else {
+				colorIndex = imageIndices[(y-localImage->top)*localImage->width + (x-localImage->left)];
+			}
+
+			imageData[y * stride + x * pixelWidth + 0] = gct[colorIndex][0];
+			imageData[y * stride + x * pixelWidth + 1] = gct[colorIndex][1];
+			imageData[y * stride + x * pixelWidth + 2] = gct[colorIndex][2];
+			if (alpha) {
+				imageData[y * stride + x * pixelWidth + 3] = colorIndex == transparentColorIndex ? 0 : 255;
+			}
+		}
+	}
+
+	outImage->buffer = imageData;
+	outImage->bufferSize = outBufferSize;
+	outImage->width = header->width;
+	outImage->height = header->height;
 
 
 	goto cleanup;
@@ -534,14 +585,34 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 		byte* buffer = new byte[len];
 		size_t read = 0;
 		while (read < len) {
-			read += fread(buffer, 1, len, f);
+			read += fread(buffer+read, 1, len-read, f);
 		};
 		fclose(f);
 
 		byte* outbuffer = new byte[len];
 		size_t outLen = 0;
 
-		read_gif(buffer, len, &error, outbuffer, &outLen,NULL);
+		gifParsedImage_t gifImage = { 0 };
+
+		read_gif(buffer, len, &error,false, outbuffer, &outLen,&gifImage);
+
+#if 1
+		if (!error && gifImage.buffer) {
+			FILE* g = NULL;
+			if (!fopen_s(&g, "testdecode.ppm", "wb") && g) {
+				char buf[40];
+				buf[0] = '\0';
+				sprintf_s(buf, sizeof(buf), "P6\n%d %d\n255\n",gifImage.width,gifImage.height);
+				fwrite(buf, 1, strlen(buf), g);
+				size_t written = 0;
+				while (written < gifImage.bufferSize) {
+					written += fwrite(gifImage.buffer+written, 1, gifImage.bufferSize -written, g);
+				};
+				fclose(g);
+			}
+			delete[] gifImage.buffer;
+		}
+#endif
 
 #if 0
 		if (!error && outLen > 0) {
@@ -549,7 +620,7 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 			if (!fopen_s(&g, "teststripped.gif", "wb") && g) {
 				size_t written = 0;
 				while (written < outLen) {
-					written += fwrite(outbuffer, 1, outLen, g);
+					written += fwrite(outbuffer+written, 1, outLen-written, g);
 				};
 				fclose(g);
 			}
