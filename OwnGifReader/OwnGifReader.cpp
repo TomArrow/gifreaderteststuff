@@ -7,9 +7,9 @@
 
 typedef unsigned char byte;
 
+#define DEBUGGING 1
 
-
-#define OUTPUTS 1
+#define OUTPUTS DEBUGGING
 
 
 inline int16_t ShortSwap(int16_t l) {
@@ -117,8 +117,8 @@ typedef	byte color_t;
 typedef	color_t colorvec_t[3];
 
 #define CLEANOUTBUFFER if(outBufferValid) { memset(outBufStart,0,len); *outLen = 0; outBuffer=outBufStart; }
-#define ERROR(what) *error = (what); CLEANOUTBUFFER; goto cleanup
-#define CHECKLENGTH(howmuch) if((howmuch) >= len){ERROR("read past end of file");}
+#define GIF_ERROR(what) *error = (what); CLEANOUTBUFFER; goto cleanup
+#define CHECKLENGTH(howmuch) if((howmuch) >= len){GIF_ERROR("read past end of file");}
 #define ADVANCE(howmuch) buffer += (size_t)(howmuch); len -= (howmuch)
 #define OUT_COPY(howmuch) if(outBufferValid){ memcpy(outBuffer,buffer,(howmuch)); outBuffer+=(howmuch); (*outLen) += (howmuch); } // for copying over when rewriting
 #define OUT_PUSHBYTE(b) if(outBufferValid){ *outBuffer=(byte)(b);outBuffer++;(*outLen)++; } // for pushing a single byte when rewriting
@@ -153,6 +153,11 @@ typedef enum gifParseFlags_s {
 	GIFPARSE_FLIPVERT = (1<<1),
 	GIFPARSE_BGR = (1<<2)
 } gifParseFlags_t;
+
+#define GIF_STRINGIFY(a) #a 
+#define GIF_STRINGIFY2(a) GIF_STRINGIFY(a) 
+//#define GIF_MAX_RES 1024
+#define GIF_DISALLOW_NON_POWER_OF_2 0
 
 // specify outBuffer and outLen if you wish to rewrite the file.
 // outbuffer MUST be at least the same length as buffer.
@@ -197,16 +202,16 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	bool outBufferValid = outBuffer && outLen;
 
 	if (!outBuffer != !outLen) {
-		ERROR("GIF decode argument error: Can only specify both outBuffer and outLen or neither. Specifying only one is invalid.");
+		GIF_ERROR("GIF decode argument error: Can only specify both outBuffer and outLen or neither. Specifying only one is invalid.");
 	}
 	if (!outBuffer && !outImage) {
-		ERROR("GIF decode argument error: Neither outBuffer nor rgbAOutBuffer are specified. Aborting.");
+		GIF_ERROR("GIF decode argument error: Neither outBuffer nor rgbAOutBuffer are specified. Aborting.");
 	}
 
 	CLEANOUTBUFFER;
 
 	if (sizeof(gifHeader_t) >= len) {
-		ERROR("File shorter than header");
+		GIF_ERROR("File shorter than header");
 	}
 	gifHeader_t* header = (gifHeader_t*)buffer;
 	OUT_COPY(sizeof(gifHeader_t) - 1);
@@ -217,17 +222,21 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	header->height = LittleShort(header->height);
 
 	if (memcmp(header->magic, "GIF", sizeof(header->magic)) || memcmp(header->version, "87a", sizeof(header->version)) && memcmp(header->version, "89a", sizeof(header->version))) {
-		ERROR("GIF magic/version incorrect");
+		GIF_ERROR("GIF magic/version incorrect");
 	}
 	if (header->width <= 0 || header->height <= 0) {
-		ERROR("GIF resolution must not be 0");
+		GIF_ERROR("GIF resolution must not be 0");
 	}
-	if (header->width >1024 || header->height>1024) {
-		ERROR("GIF too big, max resolution is 1024x1024");
+#if GIF_MAX_RES
+	if (header->width > GIF_MAX_RES || header->height> GIF_MAX_RES) {
+		GIF_ERROR("GIF too big, max resolution is " GIF_STRINGIFY2(GIF_MAX_RES) "x" GIF_STRINGIFY2(GIF_MAX_RES) "");
 	}
+#endif
+#if GIF_DISALLOW_NON_POWER_OF_2
 	if ((header->width & (header->width - 1)) || (header->height & (header->height - 1))) {
-		//ERROR("GIF not a power of 2");
+		GIF_ERROR("GIF not a power of 2");
 	}
+#endif
 
 #if OUTPUTS>=2
 	std::cout << "Gif resolution: " << header->width << "x" << header->height << "\n";
@@ -237,18 +246,21 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 		gctLen = 1 << ((header->flags & GIFHEADERFLAG_SIZEMASK) + 1);
 		int	res = 1 << (((header->flags & GIFHEADERFLAG_RESMASK) >> 4) + 1);
 		if (header->bgColor >= gctLen) {
-			ERROR("Transparent color index higher or equal to global color table length.");
+			GIF_ERROR("Transparent color index higher or equal to global color table length.");
 		}
 		if (gctLen * sizeof(colorvec_t) >= len) {
-			ERROR("GIF not long enough to hold global color table");
+			GIF_ERROR("GIF not long enough to hold global color table");
 		}
 		gct = new colorvec_t[gctLen];
+		if (!gct) {
+			GIF_ERROR("GIF decode error: Unable to allocate global color table");
+		}
 		memcpy(gct, buffer, gctLen * sizeof(colorvec_t));
 		OUT_COPY(gctLen * sizeof(colorvec_t));
 		ADVANCE(gctLen * sizeof(colorvec_t));
 	}
 	else {
-		ERROR("GIF has no global color table");
+		GIF_ERROR("GIF has no global color table");
 	}
 
 
@@ -259,7 +271,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 		CHECKLENGTH(1); byte extensionType = *(byte*)buffer;	ADVANCE(1);
 		switch (extensionType) {
 		default:
-			ERROR("GIF extension type invalid");
+			GIF_ERROR("GIF extension type invalid");
 
 		case 0x01: // Plain text extension
 			CHECKLENGTH(13); ADVANCE(13);
@@ -282,7 +294,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 			if (helper & 1) {
 				transparentColorIndex = *(byte*)buffer;
 				if (transparentColorIndex >= gctLen) {
-					ERROR("Transparent color index higher or equal to global color table length.");
+					GIF_ERROR("Transparent color index higher or equal to global color table length.");
 				}
 				OUT_PUSHBYTE(1); OUT_PUSHZERO(2); OUT_COPY(1); OUT_PUSHBYTE(0);
 			}
@@ -313,7 +325,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	}
 
 	if (type != 0x2C) {
-		ERROR("GIF corrupted/no image found");
+		GIF_ERROR("GIF corrupted/no image found");
 	}
 
 	OUT_PUSHBYTE(type);
@@ -330,40 +342,45 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	localImage->height = LittleShort(localImage->height);
 
 	if (localImage->width <= 0 || localImage->height <= 0) {
-		ERROR("GIF local image resolution must not be 0");
+		GIF_ERROR("GIF local image resolution must not be 0");
 	}
-	if (localImage->width > 1024 || localImage->height > 1024) {
-		ERROR("GIF local image too big, max resolution is 1024x1024");
+#if GIF_MAX_RES
+	if (localImage->width > GIF_MAX_RES || localImage->height > GIF_MAX_RES) {
+		GIF_ERROR("GIF local image too big, max resolution is " GIF_STRINGIFY2(GIF_MAX_RES) "x" GIF_STRINGIFY2(GIF_MAX_RES) "");
 	}
+#endif
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_LCT) {
-		ERROR("GIF with local color table not supported");
+		GIF_ERROR("GIF with local color table not supported");
 		// untested, don't do it for now
 		/*lctLen = 1 << ((localImage->flags & GIFLOCALIMAGEFLAG_SIZEMASK) + 1);
 		if (lctLen * sizeof(colorvec_t) >= len) {
-			ERROR("GIF not long enough to hold local color table");
+			GIF_ERROR("GIF not long enough to hold local color table");
 		}
 		lct = new colorvec_t[lctLen];
+		if (!lct) {
+			GIF_ERROR("GIF decode error: Unable to allocate local color table");
+		}
 		memcpy(lct, buffer, lctLen * sizeof(colorvec_t));
 		ADVANCE(lctLen * sizeof(colorvec_t) - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
 		*/
 	}
 	if (localImage->flags & GIFLOCALIMAGEFLAG_INTERLACED) {
-		//ERROR("GIF with interlacing not supported"); // might add later
+		//GIF_ERROR("GIF with interlacing not supported"); // might add later
 	}
 
 	if (localImage->width + localImage->left > header->width || localImage->height + localImage->top > header->height) {
-		ERROR("GIF local image breaks bounds of GIF");
+		GIF_ERROR("GIF local image breaks bounds of GIF");
 	}
 
 	CHECKLENGTH(1); byte lzwMinCodeSize = *(byte*)buffer; OUT_PUSHBYTE(lzwMinCodeSize); ADVANCE(1);
 	if (lzwMinCodeSize >= 12) {
-		ERROR("GIF LZW min code size wants to be >= 12 bits. Nonsense.");
+		GIF_ERROR("GIF LZW min code size wants to be >= 12 bits. Nonsense.");
 	}
 	int lzwMinCodeCount = 1 << lzwMinCodeSize;
 
 	if (lzwMinCodeCount < gctLen) {
-		ERROR("GIF LZW min code size wants to be smaller than required for the global color table.");
+		GIF_ERROR("GIF LZW min code size wants to be smaller than required for the global color table.");
 	}
 
 
@@ -382,6 +399,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	len = oldLen;
 	buffer = oldBuffer;
 	codes = new byte[codecount + LZW_BUFFER_EXTRABYTES]; // +4 so we can comfortably read variable-width bits through uint32_t casting without worrying about an overflow.
+	if (!codes) {
+		GIF_ERROR("GIF decode error: Unable to allocate code array");
+	}
 
 	helper = 1;
 	codecount = 0;
@@ -419,6 +439,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 
 	size_t localImagePixels = (size_t)localImage->width * (size_t)localImage->height;
 	imageIndices = new byte[localImagePixels];
+	if (!imageIndices) {
+		GIF_ERROR("GIF decode error: Unable to allocate global image indices");
+	}
 
 	size_t bitoffset = 0;
 	int codewidth = lzwMinCodeSize + 1;
@@ -435,15 +458,15 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 #endif
 		bitoffset += codewidth;
 		if (code < 0) {
-			ERROR("GIF Error reading LZW code.");
+			GIF_ERROR("GIF Error reading LZW code.");
 		}
 		else if (code > 4095) {
-			ERROR("GIF Error reading LZW code (>4095).");
+			GIF_ERROR("GIF Error reading LZW code (>4095).");
 		}
 		switch (codeTable[code].type) {
 		case LZWCODE_USED:
 			if ((outIndex + codeTable[code].len - 1) >= localImagePixels) {
-				ERROR("GIF Error decoding LZW, overflew local image buffer at LZWCODE_USED.");
+				GIF_ERROR("GIF Error decoding LZW, overflew local image buffer at LZWCODE_USED.");
 			}
 			memcpy(imageIndices + outIndex, codeTable[code].data, codeTable[code].len);
 			outIndex += codeTable[code].len - 1;
@@ -452,7 +475,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 				byte* newSymbol = imageIndices + outIndex - (codeTable[lastCode].len + codeTable[code].len) + 1;
 				if (newSymbol < imageIndices) {
 					// can this even happen? idk
-					ERROR("GIF Error decoding LZW, underflew local image buffer at LZWCODE_USED. Wtf that's sophisticated.");
+					GIF_ERROR("GIF Error decoding LZW, underflew local image buffer at LZWCODE_USED. Wtf that's sophisticated.");
 				}
 				nextCodeEntry->type = LZWCODE_USED;
 				nextCodeEntry->data = newSymbol;
@@ -464,14 +487,14 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 		case LZWCODE_EMPTY:
 			if (lastCode >= 0) {
 				if (nextCodeEntry - codeTable != code) {
-					ERROR("GIF Error decoding LZW, next code entry not equal to code.");
+					GIF_ERROR("GIF Error decoding LZW, next code entry not equal to code.");
 				}
 				int newLen = codeTable[lastCode].len + 1;
 				if ((outIndex + newLen - 1) >= localImagePixels) {
-					ERROR("GIF Error decoding LZW, overflew local image buffer at LZWCODE_EMPTY.");
+					GIF_ERROR("GIF Error decoding LZW, overflew local image buffer at LZWCODE_EMPTY.");
 				}
 				if (nextCodeEntry == codeTableEnd) {
-					ERROR("GIF Error decoding LZW, table full but code not in dictionary. WTF.");
+					GIF_ERROR("GIF Error decoding LZW, table full but code not in dictionary. WTF.");
 				}
 				memcpy(imageIndices + outIndex, codeTable[lastCode].data, codeTable[lastCode].len);
 				outIndex += codeTable[lastCode].len;
@@ -479,7 +502,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 				byte* newSymbol = imageIndices + outIndex - newLen + 1;
 				if (newSymbol < imageIndices) {
 					// can this even happen? idk
-					ERROR("GIF Error decoding LZW, underflew local image buffer at LZWCODE_EMPTY. Wtf that's sophisticated.");
+					GIF_ERROR("GIF Error decoding LZW, underflew local image buffer at LZWCODE_EMPTY. Wtf that's sophisticated.");
 				}
 				nextCodeEntry->type = LZWCODE_USED;
 				nextCodeEntry->data = newSymbol;
@@ -488,11 +511,11 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 				outIndex++;
 			}
 			else {
-				ERROR("GIF LZW decoding error: Referenced empty code table entry without lastCode");
+				GIF_ERROR("GIF LZW decoding error: Referenced empty code table entry without lastCode");
 			}
 			break;
 		case LZWCODE_GAP:
-			ERROR("GIF LZW decoding error: Referenced gap in code table");
+			GIF_ERROR("GIF LZW decoding error: Referenced gap in code table");
 			break;
 		case LZWCODE_EOF:
 			done = true;
@@ -510,6 +533,13 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 		continue;
 	}
 
+	if (bitoffset + 8 <= (codecount << 3)) {
+		GIF_ERROR("GIF decode error: More LZW codes than needed");
+	}
+	if (outIndex != localImagePixels) {
+		GIF_ERROR("GIF decode error: Decoded pixel count smaller than output image buffer");
+	}
+
 	if (!outImage) {
 		// we were only asked to rewrite the image. No need to fully decode it.
 		return;
@@ -517,6 +547,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 
 	if (localImage->flags & GIFLOCALIMAGEFLAG_INTERLACED) {
 		byte* imageIndicesDeinterlaced = new byte[localImagePixels];
+		if (!imageIndicesDeinterlaced) {
+			GIF_ERROR("GIF decode error: Unable to allocate deinterlaced index array");
+		}
 		int inRow = 0;
 		for (int y = 0; y < localImage->height && inRow < localImage->height; y+=8) {
 			memcpy(imageIndicesDeinterlaced + localImage->width*y, imageIndices + localImage->width * inRow,localImage->width); inRow++;
@@ -538,9 +571,12 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	int stride = pixelWidth * (size_t)header->width;
 	int outBufferSize =  (size_t)header->height * stride;
 	imageData = new byte[outBufferSize];
+	if (!imageData) {
+		GIF_ERROR("GIF decode error: Unable to allocate RGB(A) image data");
+	}
 
 	if (!gct) {
-		ERROR("GIF decoding failed. No GCT for some reason.");
+		GIF_ERROR("GIF decoding failed. No GCT for some reason.");
 	}
 
 	// is this safe? it should be... could do some bounds checks but unless i really messed up nothing should really go wrong here.
@@ -597,6 +633,7 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 		size_t len = ftell(f);
 		fseek(f, 0, SEEK_SET);
 		byte* buffer = new byte[len];
+		if (!buffer) return 1;
 		size_t read = 0;
 		while (read < len) {
 			read += fread(buffer+read, 1, len-read, f);
@@ -604,6 +641,10 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 		fclose(f);
 
 		byte* outbuffer = new byte[len];
+		if (!outbuffer) {
+			delete[] buffer;
+			return 1;
+		}
 		size_t outLen = 0;
 
 		gifParsedImage_t gifImage = { 0 };
@@ -615,50 +656,53 @@ extern "C"  INSTRUMENTATION_FUNC_PROPS int loadfile(const char* file) {
 
 		read_gif(buffer, len, &error, parseFlags, outbuffer, &outLen,&gifImage);
 
-#if 1
-		if (!error && gifImage.buffer) {
-			FILE* g = NULL;
-			if (!(parseFlags & GIFPARSE_ALPHA)) {
-				if (!fopen_s(&g, "testdecode.ppm", "wb") && g) {
-					char buf[40];
-					buf[0] = '\0';
-					sprintf_s(buf, sizeof(buf), "P6\n%d %d\n255\n", gifImage.width, gifImage.height);
-					fwrite(buf, 1, strlen(buf), g);
-					size_t written = 0;
-					while (written < gifImage.bufferSize) {
-						written += fwrite(gifImage.buffer + written, 1, gifImage.bufferSize - written, g);
-					};
-					fclose(g);
+		if(gifImage.buffer){
+#if DEBUGGING
+			if (!error) {
+				FILE* g = NULL;
+				if (!(parseFlags & GIFPARSE_ALPHA)) {
+					if (!fopen_s(&g, "testdecode.ppm", "wb") && g) {
+						char buf[40];
+						buf[0] = '\0';
+						sprintf_s(buf, sizeof(buf), "P6\n%d %d\n255\n", gifImage.width, gifImage.height);
+						fwrite(buf, 1, strlen(buf), g);
+						size_t written = 0;
+						while (written < gifImage.bufferSize) {
+							written += fwrite(gifImage.buffer + written, 1, gifImage.bufferSize - written, g);
+						};
+						fclose(g);
+					}
 				}
-			}
-			else {
-				if (!fopen_s(&g, "testdecode.tga", "wb") && g) {
-					byte buf[18];
-					memset(buf, 0, sizeof(buf));
-					buf[2] = 2;
-					buf[7] = 32;
-					buf[12] = gifImage.width & 0x00FF;
-					buf[13] = (gifImage.width & 0xFF00) >> 8;
-					buf[14] = gifImage.height & 0x00FF;
-					buf[15] = (gifImage.height & 0xFF00) >> 8;
-					buf[16] = 32;
+				else {
+					if (!fopen_s(&g, "testdecode.tga", "wb") && g) {
+						byte buf[18];
+						memset(buf, 0, sizeof(buf));
+						buf[2] = 2;
+						buf[7] = 32;
+						buf[12] = gifImage.width & 0x00FF;
+						buf[13] = (gifImage.width & 0xFF00) >> 8;
+						buf[14] = gifImage.height & 0x00FF;
+						buf[15] = (gifImage.height & 0xFF00) >> 8;
+						buf[16] = 32;
 
-					size_t written = 0;
-					while (written < sizeof(buf)) {
-						written += fwrite(buf + written, 1, sizeof(buf) - written, g);
-					};
-					written = 0;
-					while (written < gifImage.bufferSize) {
-						written += fwrite(gifImage.buffer + written, 1, gifImage.bufferSize - written, g);
-					};
-					fclose(g);
+						size_t written = 0;
+						while (written < sizeof(buf)) {
+							written += fwrite(buf + written, 1, sizeof(buf) - written, g);
+						};
+						written = 0;
+						while (written < gifImage.bufferSize) {
+							written += fwrite(gifImage.buffer + written, 1, gifImage.bufferSize - written, g);
+						};
+						fclose(g);
+					}
 				}
 			}
-			delete[] gifImage.buffer;
-		}
 #endif
 
-#if 0
+			delete[] gifImage.buffer;
+		}
+
+#if DEBUGGING
 		if (!error && outLen > 0) {
 			FILE* g = NULL;
 			if (!fopen_s(&g, "teststripped.gif", "wb") && g) {
