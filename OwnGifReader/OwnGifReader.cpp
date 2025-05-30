@@ -225,9 +225,8 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	}
 	ADVANCE(11);
 	OUT_PUSHBYTE(outFlags);
-	OUT_COPY(sizeof(gifHeader_t) -10-1 - 1);
-
-	ADVANCE(sizeof(gifHeader_t) - 10 - 1 - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
+	OUT_COPY(2);
+	ADVANCE(2);
 
 
 	header->width = LittleShort(header->width);
