@@ -215,7 +215,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	}
 	gifHeader_t* header = (gifHeader_t*)buffer;
 
-	OUT_COPY(10);
+	OUT_COPY(10); // everything in header before flags
 	// correct outFlags to prevent any shenanigans
 	byte outFlags = header->flags;
 	outFlags &= ~(GIFHEADERFLAG_SORT); // this won't crash US but who says it might not crash some 1960s GIF decoder if we allow it
@@ -225,7 +225,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	}
 	ADVANCE(11);
 	OUT_PUSHBYTE(outFlags);
-	OUT_COPY(2);
+	OUT_COPY(2);  // everything in header after flags
 	ADVANCE(2);
 
 
@@ -347,7 +347,7 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	// the actual image
 	CHECKLENGTH(sizeof(gifLocalImage_t));
 	gifLocalImage_t* localImage = (gifLocalImage_t*)buffer;
-	OUT_COPY(8);
+	OUT_COPY(8); // everything in local image struct before flags
 	outFlags = localImage->flags;
 	outFlags &= ~GIFLOCALIMAGEFLAG_SORT;  // this won't crash US but who says it might not crash some 1960s GIF decoder if we allow it
 	outFlags &= ~GIFLOCALIMAGEFLAG_RESERVED;  // same as above.
