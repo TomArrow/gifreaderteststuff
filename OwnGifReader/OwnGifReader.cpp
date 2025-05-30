@@ -90,9 +90,9 @@ typedef struct gifLocalImage_s {
 	uint16_t	height;
 #define GIFLOCALIMAGEFLAG_SIZEMASK		7
 #define GIFLOCALIMAGEFLAG_RESERVED		(3<<3)
-#define GIFLOCALIMAGEFLAG_SORT			1<<5
-#define GIFLOCALIMAGEFLAG_INTERLACED	1<<6
-#define GIFLOCALIMAGEFLAG_LCT			1<<7
+#define GIFLOCALIMAGEFLAG_SORT			(1<<5)
+#define GIFLOCALIMAGEFLAG_INTERLACED	(1<<6)
+#define GIFLOCALIMAGEFLAG_LCT			(1<<7)
 	byte		flags;
 	byte		filler; // struct has to align to the uint16_t, yikes. so just subtract 1 when advancing.
 } gifLocalImage_t;
@@ -214,8 +214,20 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 		GIF_ERROR("File shorter than header");
 	}
 	gifHeader_t* header = (gifHeader_t*)buffer;
-	OUT_COPY(sizeof(gifHeader_t) - 1);
-	ADVANCE(sizeof(gifHeader_t) - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
+
+	OUT_COPY(10);
+	// correct outFlags to prevent any shenanigans
+	byte outFlags = header->flags;
+	outFlags &= ~(GIFHEADERFLAG_SORT); // this won't crash US but who says it might not crash some 1960s GIF decoder if we allow it
+	if (outBufferValid && ((header->flags & GIFHEADERFLAG_RESMASK) >> 4) < (header->flags & GIFHEADERFLAG_SIZEMASK)) {
+		outFlags &= ~(GIFHEADERFLAG_RESMASK); // this won't crash US but who says it won't crash some other random GIF reader if we let it be smaller than gct Size
+		outFlags |= ((header->flags & GIFHEADERFLAG_SIZEMASK) << 4);
+	}
+	ADVANCE(11);
+	OUT_PUSHBYTE(outFlags);
+	OUT_COPY(sizeof(gifHeader_t) -10-1 - 1);
+
+	ADVANCE(sizeof(gifHeader_t) - 10 - 1 - 1); // -1 because the meaningful data is actually 13 bytes but struct auto aligns due to the uint16_t
 
 
 	header->width = LittleShort(header->width);
@@ -336,7 +348,11 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	// the actual image
 	CHECKLENGTH(sizeof(gifLocalImage_t));
 	gifLocalImage_t* localImage = (gifLocalImage_t*)buffer;
-	OUT_COPY(sizeof(gifLocalImage_t) - 1);
+	OUT_COPY(8);
+	outFlags = localImage->flags;
+	outFlags &= ~GIFLOCALIMAGEFLAG_SORT;  // this won't crash US but who says it might not crash some 1960s GIF decoder if we allow it
+	outFlags &= ~GIFLOCALIMAGEFLAG_RESERVED;  // same as above.
+	OUT_PUSHBYTE(outFlags);
 	ADVANCE(sizeof(gifLocalImage_t) - 1); // -1 cuz struct alignment. SIGH
 
 	localImage->top = LittleShort(localImage->top);
