@@ -227,6 +227,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 	if (header->width <= 0 || header->height <= 0) {
 		GIF_ERROR("GIF resolution must not be 0");
 	}
+	if (header->width * header->height < 2) {  // idk what c++ will do across platforms if i allocate a 1-sized array and delete with []
+		GIF_ERROR("GIF pixel count must be bigger than 1");
+	}
 #if GIF_MAX_RES
 	if (header->width > GIF_MAX_RES || header->height> GIF_MAX_RES) {
 		GIF_ERROR("GIF too big, max resolution is " GIF_STRINGIFY2(GIF_MAX_RES) "x" GIF_STRINGIFY2(GIF_MAX_RES) "");
@@ -343,6 +346,9 @@ void read_gif(const byte* buffer, size_t len, const char** error, int parseFlags
 
 	if (localImage->width <= 0 || localImage->height <= 0) {
 		GIF_ERROR("GIF local image resolution must not be 0");
+	}
+	if (localImage->width * localImage->height < 2) { // idk what c++ will do across platforms if i allocate a 1-sized array and delete with []
+		GIF_ERROR("GIF local image pixel count must be bigger than 1");
 	}
 #if GIF_MAX_RES
 	if (localImage->width > GIF_MAX_RES || localImage->height > GIF_MAX_RES) {
